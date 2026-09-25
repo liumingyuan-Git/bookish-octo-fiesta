@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>中国象棋 · 双控版</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{background:#2a1e0e;display:flex;justify-content:center;align-items:center;min-height:100vh;font-family:'Courier New',monospace;padding:10px}
+        #app{background:#d4a56a;padding:20px;border-radius:20px;box-shadow:0 10px 40px rgba(0,0,0,0.8);max-width:600px;width:100%}
+        canvas{display:block;margin:0 auto;width:100%;height:auto;aspect-ratio:9/10;background:#d4a56a;border-radius:10px;cursor:pointer;touch-action:none}
+        .info{display:flex;justify-content:space-between;align-items:center;margin-top:10px;color:#4a2a0a;font-size:14px;font-weight:bold}
+        .info .turn{background:#8b5a2b;color:#f0e0c0;padding:4px 12px;border-radius:12px}
+        .info button{background:#5a3a1a;color:#f0e0c0;border:none;padding:6px 16px;border-radius:12px;cursor:pointer;font-size:14px}
+        .info button:hover{background:#7a4a2a}
+        #status{color:#3a2a0a;font-size:13px;text-align:center;margin-top:6px}
+        .modal{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:100}
+        .modal.show{display:flex}
+        .modal-box{background:#d4a56a;padding:30px;border-radius:20px;max-width:400px;width:90%;text-align:center;color:#3a2a0a}
+        .modal-box h2{color:#5a2a0a}
+        .modal-box button{background:#5a3a1a;color:#f0e0c0;border:none;padding:10px 30px;border-radius:12px;font-size:16px;cursor:pointer;margin-top:10px}
+        @media(max-width:500px){#app{padding:10px}}
+    </style>
+</head>
+<body>
+<div id="app">
+    <canvas id="board" width="450" height="500"></canvas>
+    <div class="info">
+        <span>🔄 回合: <span id="turnNum">0</span></span>
+        <span class="turn" id="turnIndicator">⚫ 双控模式</span>
+        <button id="resetBtn">🔄 新局</button>
+    </div>
+    <div id="status">点击棋子选中，再点目标格移动（可移动任意一方）</div>
+</div>
+
+<div class="modal" id="winModal">
+    <div class="modal-box">
+        <h2 id="winTitle">🏆 胜利</h2>
+        <p id="winMsg">红方获胜！</p>
+        <button onclick="resetGame()">再来一局</button>
+    </div>
+</div>
+
+<script>
+// ============================================================
+// 第一段：数据定义、棋盘初始化、绘图
+// ============================================================
+const canvas = document.getElementById('board');
+const ctx = canvas.getContext('2d');
+const turnNumSpan = document.getElementById('turnNum');
+const turnIndicator = document.getElementById('turnIndicator');
+const statusDiv = document.getElementById('status');
+const winModal = document.getElementById('winModal');
+const winTitle = document.getElementById('winTitle');
+const winMsg = document.getElementById('winMsg');
+
+const COLS = 9, ROWS = 10;
+const CELL_SIZE = canvas.width / COLS;
+
+// 棋子类型
+const TYPES = {
+    KING: '帅',   // 红帅
+    KING_B: '将', // 黑将
+    ADVISOR: '士',
+    ADVISOR_B: '士',
+    ELEPHANT: '相',
+    ELEPHANT_B: '象',
+    HORSE: '马',
+    HORSE_B: '马',
+    ROOK: '车',
+    ROOK_B: '车',
+    CANNON: '炮',
+    CANNON_B: '砲',
+    PAWN: '兵',
+    PAWN_B: '卒'
+};
+
+// 颜色
+const RED = 'red', BLACK = 'black';
+
+// 初始布局（行, 列）
+const INIT_LAYOUT = [
+    // 红方（下方，行7~9）
+    { type: TYPES.ROOK, color: RED, row: 9, col: 0 },
+    { type: TYPES.HORSE, color: RED, row: 9, col: 1 },
+    { type: TYPES.ELEPHANT, color: RED, row: 9, col: 2 },
+    { type: TYPES.ADVISOR, color: RED, row: 9, col: 3 },
+    { type: TYPES.KING, color: RED, row: 9, col: 4 },
+    { type: TYPES.ADVISOR, color: RED, row: 9, col: 5 },
+    { type: TYPES.ELEPHANT, color: RED, row: 9, col: 6 },
+    { type: TYPES.HORSE, color: RED, row: 9, col: 7 },
+    { type: TYPES.ROOK, color: RED, row: 9, col: 8 },
+    { type: TYPES.CANNON, color: RED, row: 7, col: 1 },
+    { type: TYPES.CANNON, color: RED, row: 7, col: 7 },
+    { type: TYPES.PAWN, color: RED, row: 6, col: 0 },
+    { type: TYPES.PAWN, color: RED, row: 6, col: 2 },
+    { type: TYPES.PAWN, color: RED, row: 6, col: 4 },
+    { type: TYPES.PAWN, color: RED, row: 6, col: 6 },
+    { type: TYPES.PAWN, color: RED, row: 6, col: 8 },
+    // 黑方（上方，行0~2）
+    { type: TYPES.ROOK_B, color: BLACK, row: 0, col: 0 },
+    { type: TYPES.HORSE_B, color: BLACK, row: 0, col: 1 },
+    { type: TYPES.ELEPHANT_B, color: BLACK, row: 0, col: 2 },
+    { type: TYPES.ADVISOR_B, color: BLACK, row: 0, col: 3 },
+    { type: TYPES.KING_B, color: BLACK, row: 0, col: 4 },
+    { type: TYPES.ADVISOR_B, color: BLACK, row: 0, col: 5 },
+    { type: TYPES.ELEPHANT_B, color: BLACK, row: 0, col: 6 },
+    { type: TYPES.HORSE_B, color: BLACK, row: 0, col: 7 },
+    { type: TYPES.ROOK_B, color: BLACK, row: 0, col: 8 },
+    { type: TYPES.CANNON_B, color: BLACK, row: 2, col: 1 },
+    { type: TYPES.CANNON_B, color: BLACK, row: 2, col: 7 },
+    { type: TYPES.PAWN_B, color: BLACK, row: 3, col: 0 },
+    { type: TYPES.PAWN_B, color: BLACK, row: 3, col: 2 },
+    { type: TYPES.PAWN_B, color: BLACK, row: 3, col: 4 },
+    { type: TYPES.PAWN_B, color: BLACK, row: 3, col: 6 },
+    { type: TYPES.PAWN_B, color: BLACK, row: 3, col: 8 },
+];
+
+// 游戏状态
+let board = [];          // 二维数组 board[row][col] = piece | null
+let selected = null;     // {row, col}
+let turn = 0;            // 回合数
+let gameOver = false;
+let pieces = [];         // 所有棋子的数组，便于遍历
+
+// 棋子对象
+class Piece {
+    constructor(type, color, row, col) {
+        this.type = type;
+        this.color = color;
+        this.row = row;
+        this.col = col;
+        this.alive = true;
+        this.initRow = row;
+        this.initCol = col;
+        this.deathTurn = -1; // 死亡时的回合数
+    }
+    get isRed() { return this.color === RED; }
+    get isBlack() { return this.color === BLACK; }
+    get name() {
+        const names = {
+            '帅':'帅','将':'将','士':'士','相':'相','马':'马','车':'车','炮':'炮','兵':'兵',
+            '将':'将','象':'象','砲':'砲','卒':'卒'
+        };
+        return names[this.type] || this.type;
+    }
+}
+
+// 初始化棋盘
+function initBoard() {
+    board = Array.from({length: ROWS}, () => Array(COLS).fill(null));
+    pieces = [];
+    INIT_LAYOUT.forEach(({type, color, row, col}) => {
+        const p = new Piece(type, color, row, col);
+        board[row][col] = p;
+        pieces.push(p);
+    });
+    // 设置兵卒的初始位置（用于复活）
+    pieces.forEach(p => {
+        if (p.type === TYPES.PAWN || p.type === TYPES.PAWN_B) {
+            p.initRow = p.row;
+            p.initCol = p.col;
+        }
+    });
+    turn = 0;
+    gameOver = false;
+    selected = null;
+    updateTurnDisplay();
+    drawBoard();
+}
+
+// 绘制棋盘
+function drawBoard() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    // 画网格线
+    ctx.strokeStyle = '#4a2a0a';
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < ROWS; i++) {
+        ctx.beginPath();
+        ctx.moveTo(0, i * CELL_SIZE + CELL_SIZE/2);
+        ctx.lineTo(canvas.width, i * CELL_SIZE + CELL_SIZE/2);
+        ctx.stroke();
+    }
+    for (let i = 0; i < COLS; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * CELL_SIZE + CELL_SIZE/2, 0);
+        ctx.lineTo(i * CELL_SIZE + CELL_SIZE/2, canvas.height);
+        ctx.stroke();
+    }
+    // 画九宫格斜线
+    const drawPalace = (rowStart) => {
+        const x1 = 3 * CELL_SIZE + CELL_SIZE/2, y1 = rowStart * CELL_SIZE + CELL_SIZE/2;
+        const x2 = 5 * CELL_SIZE + CELL_SIZE/2, y2 = (rowStart+2) * CELL_SIZE + CELL_SIZE/2;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x2, y1);
+        ctx.lineTo(x1, y2);
+        ctx.stroke();
+    };
+    drawPalace(0);
+    drawPalace(7);
+    // 画楚河汉界
+    ctx.font = '20px serif';
+    ctx.fillStyle = '#4a2a0a';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('楚  河  汉  界', canvas.width/2, 4.5 * CELL_SIZE);
+    // 画棋子
+    pieces.forEach(p => {
+        if (!p.alive) return;
+        const x = p.col * CELL_SIZE + CELL_SIZE/2;
+        const y = p.row * CELL_SIZE + CELL_SIZE/2;
+        const radius = CELL_SIZE * 0.42;
+        // 圆底
+        const grad = ctx.createRadialGradient(x-3, y-3, 2, x, y, radius);
+        grad.addColorStop(0, p.color === RED ? '#ffcc88' : '#888888');
+        grad.addColorStop(1, p.color === RED ? '#cc6633' : '#333333');
+        ctx.beginPath();
+        ctx.arc(x, y, radius, 0, 2*Math.PI);
+        ctx.fillStyle = grad;
+        ctx.fill();
+        ctx.strokeStyle = p.color === RED ? '#aa2200' : '#111111';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // 文字
+        ctx.fillStyle = p.color === RED ? '#aa2200' : '#111111';
+        ctx.font = `bold ${radius}px "KaiTi", "STKaiti", serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(p.name, x, y+2);
+        // 高亮选中
+        if (selected && selected.row === p.row && selected.col === p.col) {
+            ctx.strokeStyle = '#ffaa00';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(x, y, radius+4, 0, 2*Math.PI);
+            ctx.stroke();
+        }
+    });
+}
+
+// 更新显示
+function updateTurnDisplay() {
+    turnNumSpan.textContent = turn;
+    turnIndicator.textContent = '⚫ 双控模式';
+    statusDiv.textContent = gameOver ? '游戏结束' : '点击棋子选中，再点目标格移动（可移动任意一方）';
+}
+
+// 重置游戏
+function resetGame() {
+    winModal.classList.remove('show');
+    initBoard();
+}
+document.getElementById('resetBtn').addEventListener('click', resetGame);
+
+// 初始化
+initBoard();
+
+// 第二段续接移动逻辑
+</script><script>
+// ============================================================
+// 第二段：移动逻辑、回合管理、兵复活、交互事件
+// ============================================================
+
+// ---------- 工具函数 ----------
+function isOnBoard(row, col) { return row >= 0 && row < ROWS && col >= 0 && col < COLS; }
+function getPiece(row, col) { if (!isOnBoard(row, col)) return null; return board[row][col]; }
+function isSameColor(p1, p2) { return p1 && p2 && p1.color === p2.color; }
+
+// ---------- 移动规则 ----------
+function canMove(piece, toRow, toCol) {
+    const target = getPiece(toRow, toCol);
+    if (target && target.color === piece.color) return false; // 不能吃己方
+    const dr = toRow - piece.row, dc = toCol - piece.col;
+    const absDr = Math.abs(dr), absDc = Math.abs(dc);
+    const type = piece.type;
+
+    // 帅/将
+    if (type === TYPES.KING || type === TYPES.KING_B) {
+        // 只能在九宫格内移动一步
+        const rowMin = type === TYPES.KING ? 7 : 0;
+        const rowMax = type === TYPES.KING ? 9 : 2;
+        if (toRow < rowMin || toRow > rowMax || toCol < 3 || toCol > 5) return false;
+        if (absDr + absDc !== 1) return false;
+        return true;
+    }
+    // 士
+    if (type === TYPES.ADVISOR || type === TYPES.ADVISOR_B) {
+        const rowMin = type === TYPES.ADVISOR ? 7 : 0;
+        const rowMax = type === TYPES.ADVISOR ? 9 : 2;
+        if (toRow < rowMin || toRow > rowMax || toCol < 3 || toCol > 5) return false;
+        if (absDr !== 1 || absDc !== 1) return false;
+        return true;
+    }
+    // 相/象（可过河）
+    if (type === TYPES.ELEPHANT || type === TYPES.ELEPHANT_B) {
+        if (absDr !== 2 || absDc !== 2) return false;
+        // 塞象眼
+        const eyeRow = piece.row + dr/2, eyeCol = piece.col + dc/2;
+        if (getPiece(eyeRow, eyeCol)) return false;
+        // 允许过河
+        return true;
+    }
+    // 马（可过河）
+    if (type === TYPES.HORSE || type === TYPES.HORSE_B) {
+        if (!((absDr === 1 && absDc === 2) || (absDr === 2 && absDc === 1))) return false;
+        // 蹩马腿
+        if (absDr === 2) {
+            const legRow = piece.row + (dr > 0 ? 1 : -1);
+            if (getPiece(legRow, piece.col)) return false;
+        } else {
+            const legCol = piece.col + (dc > 0 ? 1 : -1);
+            if (getPiece(piece.row, legCol)) return false;
+        }
+        return true;
+    }
+    // 车
+    if (type === TYPES.ROOK || type === TYPES.ROOK_B) {
+        if (dr !== 0 && dc !== 0) return false;
+        if (dr === 0) {
+            const step = dc > 0 ? 1 : -1;
+            for (let c = piece.col + step; c !== toCol; c += step) {
+                if (getPiece(piece.row, c)) return false;
+            }
+        } else {
+            const step = dr > 0 ? 1 : -1;
+            for (let r = piece.row + step; r !== toRow; r += step) {
+                if (getPiece(r, piece.col)) return false;
+            }
+        }
+        return true;
+    }
+    // 炮
+    if (type === TYPES.CANNON || type === TYPES.CANNON_B) {
+        if (dr !== 0 && dc !== 0) return false;
+        let count = 0;
+        if (dr === 0) {
+            const step = dc > 0 ? 1 : -1;
+            for (let c = piece.col + step; c !== toCol; c += step) {
+                if (getPiece(piece.row, c)) count++;
+            }
+        } else {
+            const step = dr > 0 ? 1 : -1;
+            for (let r = piece.row + step; r !== toRow; r += step) {
+                if (getPiece(r, piece.col)) count++;
+            }
+        }
+        if (target) {
+            // 吃子必须隔一个
+            return count === 1;
+        } else {
+            // 不吃子不能隔子
+            return count === 0;
+        }
+    }
+    // 兵/卒
+    if (type === TYPES.PAWN || type === TYPES.PAWN_B) {
+        const isRed = type === TYPES.PAWN;
+        const forward = isRed ? -1 : 1; // 红方在上，兵向下走
+        const crossed = isRed ? piece.row <= 4 : piece.row >= 5; // 是否过河
+        // 不能后退
+        if (isRed && dr > 0) return false;
+        if (!isRed && dr < 0) return false;
+        if (absDr + absDc !== 1) return false;
+        // 过河前只能直走
+        if (!crossed && dc !== 0) return false;
+        // 过河后可横走
+        return true;
+    }
+    return false;
+}
+
+// ---------- 执行移动 ----------
+function makeMove(piece, toRow, toCol) {
+    const target = getPiece(toRow, toCol);
+    // 如果目标有棋子，吃掉
+    if (target) {
+        target.alive = false;
+        target.deathTurn = turn;
+        board[toRow][toCol] = null;
+    }
+    // 移动
+    board[piece.row][piece.col] = null;
+    piece.row = toRow;
+    piece.col = toCol;
+    board[toRow][toCol] = piece;
+    // 检查是否吃掉将/帅，获胜
+    if (target && (target.type === TYPES.KING || target.type === TYPES.KING_B)) {
+        gameOver = true;
+        const winner = piece.color === RED ? '红方' : '黑方';
+        winTitle.textContent = '🏆 ' + winner + '胜利！';
+        winMsg.textContent = '吃掉了对方的将/帅！';
+        winModal.classList.add('show');
+        updateTurnDisplay();
+        drawBoard();
+        return true;
+    }
+    return false;
+}
+
+// ---------- 回合管理 ----------
+function advanceTurn() {
+    turn++;
+    // 检查兵复活
+    pieces.forEach(p => {
+        if (!p.alive && (p.type === TYPES.PAWN || p.type === TYPES.PAWN_B)) {
+            if (turn - p.deathTurn >= 5) {
+                // 检查初始位置是否被占
+                if (!getPiece(p.initRow, p.initCol)) {
+                    p.alive = true;
+                    p.row = p.initRow;
+                    p.col = p.initCol;
+                    board[p.initRow][p.initCol] = p;
+                    p.deathTurn = -1;
+                }
+            }
+        }
+    });
+    updateTurnDisplay();
+    drawBoard();
+}
+
+// ---------- 交互事件 ----------
+canvas.addEventListener('click', function(e) {
+    if (gameOver) return;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+    const col = Math.floor(x / CELL_SIZE);
+    const row = Math.floor(y / CELL_SIZE);
+    if (!isOnBoard(row, col)) return;
+
+    const clicked = getPiece(row, col);
+    // 如果当前没有选中任何棋子，则选中点击的棋子（必须属于当前回合颜色）
+    if (!selected) {
+        if (clicked && clicked.alive) {
+            selected = { row, col };
+            drawBoard();
+            statusDiv.textContent = '已选中 ' + clicked.name + '，点击目标格';
+        } else {
+            statusDiv.textContent = '请点击己方棋子';
+        }
+        return;
+    }
+
+    // 已有选中
+    const piece = getPiece(selected.row, selected.col);
+    if (!piece || !piece.alive) {
+        selected = null;
+        drawBoard();
+        statusDiv.textContent = '棋子无效，重新选择';
+        return;
+    }
+
+    // 如果点击的是同一个棋子，取消选中
+    if (selected.row === row && selected.col === col) {
+        selected = null;
+        drawBoard();
+        statusDiv.textContent = '已取消选中';
+        return;
+    }
+
+    // 尝试移动
+    if (canMove(piece, row, col)) {
+        const success = makeMove(piece, row, col);
+        if (success) {
+            // 移动成功，清除选中，回合前进
+            selected = null;
+            advanceTurn();
+            statusDiv.textContent = '移动成功';
+            if (gameOver) {
+                drawBoard();
+                return;
+            }
+        } else {
+            selected = null;
+            drawBoard();
+            statusDiv.textContent = '移动失败';
+        }
+    } else {
+        // 如果点击的是己方另一个棋子，切换选中
+        if (clicked && clicked.alive && clicked.color === piece.color) {
+            selected = { row, col };
+            drawBoard();
+            statusDiv.textContent = '切换选中 ' + clicked.name;
+        } else {
+            statusDiv.textContent = '非法移动';
+        }
+    }
+});
+
+// 触摸支持
+canvas.addEventListener('touchstart', function(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = (touch.clientX - rect.left) * scaleX;
+    const y = (touch.clientY - rect.top) * scaleY;
+    const col = Math.floor(x / CELL_SIZE);
+    const row = Math.floor(y / CELL_SIZE);
+    if (!isOnBoard(row, col)) return;
+    // 模拟点击
+    const clickEvent = new MouseEvent('click', {
+        clientX: touch.clientX,
+        clientY: touch.clientY
+    });
+    canvas.dispatchEvent(clickEvent);
+}, { passive: false });
+
+// ---------- 初始化启动 ----------
+// 已在第一段 initBoard()
+</script>
+</body>
+</html>
